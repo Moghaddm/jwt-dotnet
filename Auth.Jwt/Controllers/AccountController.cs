@@ -2,8 +2,10 @@ using System.Security.Claims;
 using Auth.Jwt.Models;
 using Auth.Jwt.Services;
 using Auth.Jwt.Services.User;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
 
 namespace Auth.Jwt.Controllers;
 
@@ -41,7 +43,7 @@ public class AccountController : ControllerBase
 
         var claims = new[]
         {
-            new Claim(ClaimTypes.Name,request.UserName),
+            new Claim(ClaimTypes.Name, request.UserName),
             new Claim(ClaimTypes.Role, role)
         };
 
@@ -61,11 +63,40 @@ public class AccountController : ControllerBase
 
     [HttpPost("[action]")]
     [Authorize]
-    public ActionResult Logout()
+    public async Task<ActionResult> Logout()
     {
         var userName = User.Identity.Name;
-        _jwtManager.RemoveRefreshTokenByUserName(userName);
+        await _jwtManager.RemoveRefreshTokenByUserName(userName);
         _logger.LogInformation($"User [{userName}] logged out the system.");
         return Ok();
+    }
+
+    [HttpPost("[action]", Name = nameof(Refresh))]
+    public async Task<ActionResult> Refresh([FromBody] RefreshTokenRequest request)
+    {
+        try
+        {
+            var userName = User.Identity.Name;
+            _logger.LogInformation($"User [{userName}] is trying to refresh JWT token.");
+
+            if (string.IsNullOrWhiteSpace(request.RefreshToken))
+                return Unauthorized("Missing Refresh Token.");
+            var accessToken = await HttpContext.GetTokenAsync("Bearer", "access_token");
+            var jwtResult = _jwtManager.Refresh(request.RefreshToken, accessToken, DateTime.Now);
+            _logger.LogInformation($"User [{userName}] has refreshed JWT token.");
+            return Ok(
+                new LoginResult
+                {
+                    UserName = userName,
+                    Role = User.FindFirst(ClaimTypes.Role).Value ?? string.Empty,
+                    AccessToken = jwtResult.AccessToken,
+                    RefreshToken = jwtResult.RefreshToken.Token
+                }
+            );
+        }
+        catch (SecurityTokenException exception)
+        {
+            return RedirectToAction("Login");
+        }
     }
 }

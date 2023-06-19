@@ -26,7 +26,9 @@ public class JwtAuthenticationManager : IJwtAuthenticationManager
 
     public JwtAuthenticationResult GenerateTokens(string userName, Claim[] claims, DateTime now)
     {
-        var shouldAddAudienceClaim = string.IsNullOrWhiteSpace(claims?.FirstOrDefault(x => x.Type == JwtRegisteredClaimNames.Aud)?.Value);
+        var shouldAddAudienceClaim = string.IsNullOrWhiteSpace(
+            claims?.FirstOrDefault(x => x.Type == JwtRegisteredClaimNames.Aud)?.Value
+        );
 
         var jwtToken = new JwtSecurityToken(
             _jwtTokenConfiguration.Issuer,
@@ -72,5 +74,50 @@ public class JwtAuthenticationManager : IJwtAuthenticationManager
         using var randomNumberGenerator = RandomNumberGenerator.Create();
         randomNumberGenerator.GetBytes(randomNumber);
         return Convert.ToBase64String(randomNumber);
+    }
+
+    public JwtAuthenticationResult Refresh(string refreshToken, string accessToken, DateTime now)
+    {
+        var (principal, jwtToken) = DecodeJwtToken(accessToken);
+        if (jwtToken == null || !jwtToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256Signature))
+        {
+            throw new SecurityTokenException("Invalid token");
+        }
+
+        var userName = principal.Identity.Name;
+        if (!_userRefreshToken.TryGetValue(refreshToken, out var existingRefreshToken))
+        {
+            throw new SecurityTokenException("Invalid token");
+        }
+        if (existingRefreshToken.UserName != userName || existingRefreshToken.ExpireTime < now)
+        {
+            throw new SecurityTokenException("Invalid token");
+        }
+
+        return GenerateTokens(userName, principal.Claims.ToArray(), now);
+    }
+
+    public (ClaimsPrincipal, JwtSecurityToken) DecodeJwtToken(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            throw new SecurityTokenException("Invalid token");
+        }
+        var principal = new JwtSecurityTokenHandler().ValidateToken(
+            token,
+            new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidIssuer = _jwtTokenConfiguration.Issuer,
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new SymmetricSecurityKey(_secret),
+                ValidAudience = _jwtTokenConfiguration.Audience,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.FromMinutes(1)
+            },
+            out var validatedToken
+        );
+        return (principal, validatedToken as JwtSecurityToken);
     }
 }
