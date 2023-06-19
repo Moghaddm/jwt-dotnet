@@ -1,0 +1,2 @@
+GET http://localhost:5191/WeatherForecast
+Authorization : Bearer 
