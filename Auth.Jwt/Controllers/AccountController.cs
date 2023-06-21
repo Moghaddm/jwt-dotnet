@@ -99,4 +99,10 @@ public class AccountController : ControllerBase
             return RedirectToAction("Login");
         }
     }
+    [AllowAnonymous]
+    [HttpPost("[action]", Name = nameof(Register))]
+    public async Task<ActionResult> Register(RegisterRequest user)
+    {
+        return Ok(await _userService.RegisterUser(user));
+    }
 }
